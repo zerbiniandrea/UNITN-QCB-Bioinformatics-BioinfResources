@@ -1,2 +1,2 @@
 # UNITN-QCB-Bioinformatics-BioinfResources
- Bioinformatics Resources Project, provided as R script
+R project for the Bioinformatics Resources course
