@@ -5,13 +5,21 @@ BiocManager::install("biomaRt")
 BiocManager::install("edgeR")
 BiocManager::install("clusterProfiler")
 BiocManager::install("org.Hs.eg.db")
-#BiocManager::install("pathview")
+BiocManager::install("pathview")
+BiocManager::install("PWMEnrich.Hsapiens.background")
+BiocManager::install("MotifDb")
 
 library(biomaRt)
 library(edgeR)
 library(clusterProfiler)
 library(org.Hs.eg.db)
-#library(pathview)
+library(pathview)
+library(PWMEnrich.Hsapiens.background)
+library(MotifDb)
+library(igraph)
+
+# IF ONE WOULD LIKE TO SET THE WORKING DIRECTORY
+#setwd("~/")
 
 # 1
 # LOAD RDATA FILE
@@ -99,7 +107,9 @@ fc_thrs <- 1
 CPM_thrs <- 1.5
 pval_thrs <- 0.01
 
-DEGs <- edgeRglmQLF(mat=edge_f, cpm_mat=edge_n, contro=contro, label="CasevsControl", sig_thr=CPM_thrs, sig_col="log2_CPM", fc_thr=fc_thrs, pval_thr=pval_thrs, pval_col="p_adj",names=F)
+DEGs <- edgeRglmQLF(mat=edge_f, cpm_mat=edge_n, contro=contro, 
+                    label="CasevsControl", sig_thr=CPM_thrs, sig_col="log2_CPM", 
+                    fc_thr=fc_thrs, pval_thr=pval_thrs, pval_col="p_adj",names=F)
 
 #Volcano plot
 input_df <- DEGs
@@ -122,7 +132,6 @@ heatmap(as.matrix(cpm_table[which(rownames(cpm_table)%in%DEGs$id[which(DEGs$clas
 
 # 4
 # Gene set enrichment analysis
-ensembl <- useEnsembl(biomart = "ensembl",dataset = "hsapiens_gene_ensembl")
 convert <- getBM(attributes=c("ensembl_gene_id","entrezgene_id","external_gene_name"),
                  filters=c("ensembl_gene_id"), 
                  values=DEGs$id,
@@ -139,6 +148,10 @@ DEGs <- merge(DEGs,convert,by.x="id",by.y="ensembl_gene_id")
 upDEGs <- DEGs %>% filter(class == "+")
 downDEGs <- DEGs %>% filter(class == "-")
 
+# Write the list of up regulated genes in order to
+# use them later for the 9th task
+write.table(upDEGs[1],file="upDEGs.txt",row.names=F,col.names=F,sep="\t",quote=F)
+
 # BP
 up_ego_BP <- enrichGO(gene = upDEGs$external_gene_name,
                    OrgDb = org.Hs.eg.db,
@@ -147,7 +160,6 @@ up_ego_BP <- enrichGO(gene = upDEGs$external_gene_name,
                    pAdjustMethod = "BH",
                    pvalueCutoff = 0.05,
                    qvalueCutoff = 0.05)
-dim(up_ego_BP)
 
 down_ego_BP <- enrichGO(gene = downDEGs$external_gene_name,
                    OrgDb = org.Hs.eg.db,
@@ -156,7 +168,21 @@ down_ego_BP <- enrichGO(gene = downDEGs$external_gene_name,
                    pAdjustMethod = "BH",
                    pvalueCutoff = 0.05,
                    qvalueCutoff = 0.05)
-dim(down_ego_BP)
+
+up_BP <- as.data.frame(up_ego_BP)
+up_BP <- up_BP[order(up_BP$GeneRatio),]
+
+down_BP <- as.data.frame(down_ego_BP)
+down_BP <- down_BP[order(down_BP$GeneRatio),]
+
+print("The top 10 enriched GO terms for up regulated genes found using BP are:")
+print(head(up_BP[1:2],n=10))
+cat("\n\n")
+
+
+print("The top 10 enriched GO terms for up downregulated genes found using BP are:")
+print(head(down_BP[1:2],n=10))
+cat("\n\n")
 
 # MF
 ###################################################################
@@ -169,7 +195,6 @@ up_ego_MF <- enrichGO(gene = upDEGs$external_gene_name,
                       pAdjustMethod = "BH",
                       pvalueCutoff = 0.15,
                       qvalueCutoff = 0.15)
-dim(up_ego_MF)
 
 down_ego_MF <- enrichGO(gene = downDEGs$external_gene_name,
                         OrgDb = org.Hs.eg.db,
@@ -178,22 +203,92 @@ down_ego_MF <- enrichGO(gene = downDEGs$external_gene_name,
                         pAdjustMethod = "BH",
                         pvalueCutoff = 0.05,
                         qvalueCutoff = 0.05)
-dim(down_ego_MF)
+
+up_MF <- as.data.frame(up_ego_MF)
+up_MF <- up_MF[order(up_MF$GeneRatio),]
+
+down_MF <- as.data.frame(down_ego_MF)
+down_MF <- down_MF[order(down_MF$GeneRatio),]
+
+print("The top 10 enriched GO terms for up regulated genes found using MF are:")
+print(head(up_MF[1:2],n=10))
+cat("\n\n")
+
+print("The top 10 enriched GO terms for up downregulated genes found using MF are:")
+print(head(down_MF[1:2],n=10))
+cat("\n\n")
 
 #barplot(up_ego_BP,showCategory=10)
 
 # KEGG
-
-ekegg <- enrichKEGG(gene = upDEGs$entrezgene_id,
+up_ekegg <- enrichKEGG(gene = upDEGs$entrezgene_id,
                     organism = 'human',
                     pvalueCutoff = 0.05,
                     qvalueCutoff = 0.05)
 
-head(ekegg, n=10)
+down_ekegg <- enrichKEGG(gene = downDEGs$entrezgene_id,
+                       organism = 'human',
+                       pvalueCutoff = 0.05,
+                       qvalueCutoff = 0.05)
 
-## Plot the pathway with DEG genes
+up_kegg <- as.data.frame(up_ekegg)
+up_kegg <- up_kegg[order(up_kegg$GeneRatio),]
+
+down_kegg <- as.data.frame(down_ekegg)
+down_kegg <- down_kegg[order(down_kegg$GeneRatio),]
+
+print("The top 10 enriched KEGG pathways for up regulated genes found are:")
+print(head(up_kegg[1:2],n=10))
+cat("\n\n")
+
+print("The top 10 enriched KEGG pathways for up downregulated genes found are:")
+print(head(down_kegg[1:2],n=10))
+cat("\n\n")
+
+# 5
+# Plot one pathway
 logFC <- upDEGs$log2_FC
 names(logFC) <- upDEGs$entrezgene_id
-#pathview(gene.data = logFC, 
-         # = "hsa05202", 
-         #species = "human")
+pathview(gene.data = logFC, pathway.id = up_ekegg[1][1], species = "human")
+print("Saving the pathway in the current working directory:")
+print(getwd())
+
+# 6
+# Find TFs with enriched promoters
+promoter_seq <- getSequence(id = upDEGs$id, 
+                            type="ensembl_gene_id",
+                            seqType="gene_flank",
+                            upstream=500,
+                            mart=ensembl)
+
+data(PWMLogn.hg19.MotifDb.Hsap)
+sequences <- lapply(promoter_seq$gene_flank,function(x) DNAString(x))
+enriched_TFs <- motifEnrichment(sequences,PWMLogn.hg19.MotifDb.Hsap,score = "affinity")
+report = groupReport(enriched_TFs)
+
+# 7 & 8
+# Compute the empirical distributions and find genes having
+# a region in their promoter with binding scores above computed thresholds
+tfs = report$target[1]
+tfs_motifs = subset(MotifDb, organism=='Hsapiens' & geneSymbol==tfs[1])
+PWM = toPWM(as.list(tfs_motifs))
+ecdf = motifEcdf(PWM,organism = "hg19",quick=TRUE)
+thresholds = lapply(ecdf,function(x) quantile(x,0.995))
+scores = motifScores(sequences,PWM,raw.score=FALSE,cutoff=unlist(thresholds))
+
+# 9
+# Use String (string-db.org) to find PPI
+# The list of up regulated genes is saved in a txt file in the 4th task
+# write.table(upDEGs[1],file="upDEGs.txt",row.names=F,col.names=F,sep="\t",quote=F)
+links <- read.delim("string_interactions.tsv")
+
+# 10
+# Import the PPI network and find the largest connected component
+nodes <- 
+  getBM(attributes=c("external_gene_name","ensembl_gene_id","description","gene_biotype","start_position","end_position","chromosome_name","strand"),
+        filters=c("ensembl_gene_id"), 
+        values=upDEGs[,1],
+        mart = ensembl)
+nodes = unique(nodes[,c(1,3:6)])
+
+net <- graph_from_data_frame(d=links,vertices=nodes,directed=FALSE) 
