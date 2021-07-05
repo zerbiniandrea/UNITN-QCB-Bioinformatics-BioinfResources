@@ -39,9 +39,25 @@ query1 <- getBM(attributes=c("ensembl_gene_id",
                              "strand",
                              "description",
                              "version"),
-                filters=c("chromosome_name"), 
-                values=list(c("21")),
+                filters=c("ensembl_gene_id"),
+                values=r_anno_df$gene_id,
                 mart = ensembl)
+
+# To select genes only from one chromosome
+# Just to test the code faster
+# query1 <- getBM(attributes=c("ensembl_gene_id",
+#                              "external_gene_name",
+#                              "gene_biotype",
+#                              "transcript_count",
+#                              "start_position",
+#                              "end_position",
+#                              "chromosome_name",
+#                              "strand",
+#                              "description",
+#                              "version"),
+#                 filters=c("chromosome_name"),
+#                 values=list(c("21")),
+#                 mart = ensembl)
 
 query1_protein_coding <- query1[which(query1$gene_biotype=="protein_coding"),]
 
@@ -53,6 +69,7 @@ raw_counts_df <- na.omit(raw_counts_df)
 # 3
 # Perform differential expression analysis
 
+# 3b
 # count threshold
 count_thr <- 20
 # number of replicates with more counts than the count threshold
@@ -103,15 +120,16 @@ edgeRglmQLF <- function(mat=edge_f,contro,cpm_mat=edge_n,label="",sig_thr=0.5,si
 
 contro <- makeContrasts("Case-Control", levels=design) 
 
-fc_thrs <- 1
-CPM_thrs <- 1.5
+fc_thrs <- 1.5
+CPM_thrs <- 1
 pval_thrs <- 0.01
 
 DEGs <- edgeRglmQLF(mat=edge_f, cpm_mat=edge_n, contro=contro, 
                     label="CasevsControl", sig_thr=CPM_thrs, sig_col="log2_CPM", 
                     fc_thr=fc_thrs, pval_thr=pval_thrs, pval_col="p_adj",names=F)
 
-#Volcano plot
+# 3c
+# Volcano plot
 input_df <- DEGs
 xlabel <- "log2 FC Case vs Control"
 ylabel <- "-log10 adj_pvalue (FDR)"
@@ -124,7 +142,8 @@ abline(v=fc_thrs,lty=2,col="grey20")
 abline(v=-fc_thrs,lty=2,col="grey20")
 abline(h=-log10(pval_thrs),lty=2,col="grey20")
 
-## Heatmap with DEG genes
+# 3d
+# Heatmap with DEG genes
 pal <- c("blue","white","red") 
 pal <- colorRampPalette(pal)(100)
 heatmap(as.matrix(cpm_table[which(rownames(cpm_table)%in%DEGs$id[which(DEGs$class!="=")]),])
@@ -140,9 +159,7 @@ convert <- na.omit(convert)
 
 DEGs <- merge(DEGs,convert,by.x="id",by.y="ensembl_gene_id")
 
-# THIS GAVE ME ERRORS SO I COULDN'T CHECK FOR DUPLICATES
-# THIS SPECIFIC DATA SET DOESN'T HAVE DUPLICATES SO IT'S SAFE TO GO ON
-#DEGs <- DEGs[-which(duplicated(DEGs$entrezgene_id)),]
+DEGs <- DEGs[-which(duplicated(DEGs$entrezgene_id)),]
 
 ## Create a list of upregulated genes
 upDEGs <- DEGs %>% filter(class == "+")
@@ -175,26 +192,23 @@ up_BP <- up_BP[order(up_BP$GeneRatio),]
 down_BP <- as.data.frame(down_ego_BP)
 down_BP <- down_BP[order(down_BP$GeneRatio),]
 
-print("The top 10 enriched GO terms for up regulated genes found using BP are:")
+print("The top 10 enriched GO terms for upregulated genes found using BP are:")
 print(head(up_BP[1:2],n=10))
 cat("\n\n")
 
 
-print("The top 10 enriched GO terms for up downregulated genes found using BP are:")
+print("The top 10 enriched GO terms for downregulated genes found using BP are:")
 print(head(down_BP[1:2],n=10))
 cat("\n\n")
 
 # MF
-###################################################################
-# !!! HAD TO INCREASE P-VALUE FOR UP REGULATED GENES USING MF !!! #
-###################################################################
 up_ego_MF <- enrichGO(gene = upDEGs$external_gene_name,
                       OrgDb = org.Hs.eg.db,
                       keyType = 'SYMBOL',
                       ont = "MF",
                       pAdjustMethod = "BH",
-                      pvalueCutoff = 0.15,
-                      qvalueCutoff = 0.15)
+                      pvalueCutoff = 0.05,
+                      qvalueCutoff = 0.05)
 
 down_ego_MF <- enrichGO(gene = downDEGs$external_gene_name,
                         OrgDb = org.Hs.eg.db,
@@ -210,11 +224,11 @@ up_MF <- up_MF[order(up_MF$GeneRatio),]
 down_MF <- as.data.frame(down_ego_MF)
 down_MF <- down_MF[order(down_MF$GeneRatio),]
 
-print("The top 10 enriched GO terms for up regulated genes found using MF are:")
+print("The top 10 enriched GO terms for upregulated genes found using MF are:")
 print(head(up_MF[1:2],n=10))
 cat("\n\n")
 
-print("The top 10 enriched GO terms for up downregulated genes found using MF are:")
+print("The top 10 enriched GO terms for downregulated genes found using MF are:")
 print(head(down_MF[1:2],n=10))
 cat("\n\n")
 
@@ -237,11 +251,11 @@ up_kegg <- up_kegg[order(up_kegg$GeneRatio),]
 down_kegg <- as.data.frame(down_ekegg)
 down_kegg <- down_kegg[order(down_kegg$GeneRatio),]
 
-print("The top 10 enriched KEGG pathways for up regulated genes found are:")
+print("The top 10 enriched KEGG pathways for upregulated genes found are:")
 print(head(up_kegg[1:2],n=10))
 cat("\n\n")
 
-print("The top 10 enriched KEGG pathways for up downregulated genes found are:")
+print("The top 10 enriched KEGG pathways for downregulated genes found are:")
 print(head(down_kegg[1:2],n=10))
 cat("\n\n")
 
@@ -275,6 +289,9 @@ PWM = toPWM(as.list(tfs_motifs))
 ecdf = motifEcdf(PWM,organism = "hg19",quick=TRUE)
 thresholds = lapply(ecdf,function(x) quantile(x,0.995))
 scores = motifScores(sequences,PWM,raw.score=FALSE,cutoff=unlist(thresholds))
+scores <- as.data.frame(scores)
+print("Genes having a region in their promoter with binding scores above the threshold:")
+print(scores[which(scores$`Hsapiens-hPDI-NNT`>0),])
 
 # 9
 # Use String (string-db.org) to find PPI
@@ -285,7 +302,9 @@ links <- read.delim("string_interactions.tsv")
 # 10
 # Import the PPI network and find the largest connected component
 nodes <- 
-  getBM(attributes=c("external_gene_name","ensembl_gene_id","description","gene_biotype","start_position","end_position","chromosome_name","strand"),
+  getBM(attributes=c("external_gene_name","ensembl_gene_id","description",
+                     "gene_biotype","start_position","end_position",
+                     "chromosome_name","strand"),
         filters=c("ensembl_gene_id"), 
         values=upDEGs[,1],
         mart = ensembl)
